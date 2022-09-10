@@ -79,7 +79,6 @@ def check_status(link):
         return int(response.headers['Spb-initial-status-code'])
     else:
         print("not ok")
-        print(response.reason)
     time.sleep(2)
     return 200
 
@@ -124,9 +123,9 @@ def update_reviews_removed(reviews_sheet_link):
             if status != 200:
                 print("found one review removed",all_reviews[i])
                 all_removed[i] = "TRUE"
-        break
-    print('done',reviews_sheet_link)
     sheet.update(f'{chr(64 + removed_col) }:{chr(64 + removed_col)}', [[all_removed[0]]]+[ [False] if r == "FALSE" else [True] for r in all_removed[1:]])
+    print('done',reviews_sheet_link)
+
 
 
 def main():
