@@ -10,6 +10,8 @@ import gspread
 from scrapingbee import ScrapingBeeClient
 from concurrent.futures import ThreadPoolExecutor
 import requests
+
+import pandas as pd
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/drive','https://www.googleapis.com/auth/drive.file','https://www.googleapis.com/auth/spreadsheets']
 
@@ -114,9 +116,10 @@ def update_reviews_removed(reviews_sheet_link):
     removed_col = None
     i=1
 
-    columns =sheet.row_values(1)
+    table = pd.DataFrame(sheet.get_all_records())
 
-    for i , column in enumerate(columns):
+
+    for i , column in enumerate(table.columns):
         if  column == "Link to Review":
             reviews_col = i+1
 
@@ -127,19 +130,28 @@ def update_reviews_removed(reviews_sheet_link):
         print(f"failed to find columns in {reviews_sheet_link}") 
         return
     
-    print("found all columns")
-    all_reviews = sheet.col_values(reviews_col)
-    all_removed = sheet.col_values(removed_col)
+    all_reviews = table['Link to Review'].to_list()
+    all_removed = table['Removed'].to_list()
 
+    report = []
 
-    for i in range(1,len(all_reviews)):
+    for i in range(0,len(all_reviews)):
         if all_removed[i] == "FALSE":
             status = check_status(all_reviews[i])
             if status == 404:
-                print("found one review removed",all_reviews[i])
+                print("found a review removed",all_reviews[i])
+                report.append(
+                    {
+                        "Review ID": table.iloc[i]["Review ID"],
+                        "Review Link":all_reviews[i],
+                        "Removed": True,
+                        "Sheet":reviews_sheet_link
+                    }
+                )
                 all_removed[i] = "TRUE"
-    sheet.update(f'{chr(64 + removed_col) }:{chr(64 + removed_col)}', [[all_removed[0]]]+[ [False] if r == "FALSE" else [True] for r in all_removed[1:]])
+    sheet.update(f'{chr(64 + removed_col)}:{chr(64 + removed_col)}', [["Removed"]]+[ [False] if r == "FALSE" else [True] for r in all_removed])
     print('done',reviews_sheet_link)
+    return report
 
 
 
@@ -148,9 +160,14 @@ def main():
     monitering_reviews_link = get_reviews_link()
     print(f"found {len(monitering_reviews_link)} links from the masters sheet.")
 
+    report = []
     with ThreadPoolExecutor(max_workers=8) as executor:
-        executor.map(update_reviews_removed,monitering_reviews_link)
+        results = executor.map(update_reviews_removed,monitering_reviews_link)
+        for r in results:
+            report.extend(r)
+        report = pd.DataFrame(report)
     print("updates done")
+    report.to_csv("report.csv")
     # update_reviews_removed(monitering_reviews_link[0])
 if __name__ == '__main__':
     main()
