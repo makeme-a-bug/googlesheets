@@ -15,6 +15,7 @@ import requests
 from rich.console import Console
 
 import pandas as pd
+import time
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/drive','https://www.googleapis.com/auth/drive.file','https://www.googleapis.com/auth/spreadsheets']
 
@@ -186,6 +187,7 @@ def update_reviews_removed(reviews_sheet_link:str) -> List:
 
 
 def main():
+    t1 = time.perf_counter()
     console.log(f"Getting all the reviews sheet links from master",style="purple")
     monitering_reviews_link = get_reviews_link()
     console.log(f"found [{len(monitering_reviews_link)}] links from the masters sheet.",style="blue")
@@ -199,6 +201,9 @@ def main():
     report.to_csv("report.csv")
 
     console.log(f"Update Done!!",style="Green")
+    t2 = time.perf_counter()
+    total_time = t2-t1
+    console.log(f"the script took {round(total_time/3600,2)} hours to complete",style = "yellow")
 
 
 
