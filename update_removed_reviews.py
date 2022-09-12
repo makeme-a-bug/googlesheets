@@ -1,8 +1,6 @@
 from __future__ import print_function
-from multiprocessing.connection import wait
 
 import os.path
-from re import I, S
 from typing import List
 
 from google.auth.transport.requests import Request
@@ -11,8 +9,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 import gspread
 from scrapingbee import ScrapingBeeClient
 from concurrent.futures import ThreadPoolExecutor
-import urllib.parse
-import time
+import requests
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/drive','https://www.googleapis.com/auth/drive.file','https://www.googleapis.com/auth/spreadsheets']
 
@@ -64,7 +61,7 @@ def get_reviews_link() -> List[List[str]]:
 
         reviews_link = list(filter(lambda x: x.startswith("https"),values))
 
-        return reviews_link[1:]
+        return reviews_link
 
     except Exception as e:
         print("couldn't work with master sheet")
@@ -73,16 +70,32 @@ def get_reviews_link() -> List[List[str]]:
 
 
 def check_status(link):
-    response = scraping_bee_client.get(link,params = { 
-        'render_js': 'False',
-        'json_response':"True"
-    })
-
     try:
-        status = response.headers.get('Spb-initial-status-code',None)
-        return int(status)
-    except:
-        return None
+        response = scraping_bee_client.get(link,params = { 
+            'render_js': 'False',
+            'json_response':"True"
+        })
+
+        try:
+            status = response.headers.get('Spb-initial-status-code',None)
+            return int(status)
+        except:
+            return None
+
+    except requests.exceptions.ConnectTimeout as e:
+        print("timed out connecting to scrapingbee")
+
+    except requests.exceptions.ConnectionError as e:
+        print("make sure your connected to internet")
+
+    except requests.exceptions.RequestException as e:
+        print("Fatal error : ",e)
+
+    except Exception as e:
+        print(e)
+        print(link)
+    
+    return None
 
 
 
