@@ -1,28 +1,31 @@
 from __future__ import print_function
 
 import os.path
-from typing import List
+from typing import List,Union
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
+
 import gspread
 from scrapingbee import ScrapingBeeClient
 from concurrent.futures import ThreadPoolExecutor
 import requests
+
+from rich.console import Console
 
 import pandas as pd
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/drive','https://www.googleapis.com/auth/drive.file','https://www.googleapis.com/auth/spreadsheets']
 
 # The ID and range of a sample spreadsheet.
-scraping_bee_client = ScrapingBeeClient(api_key='YOK6YU7PX88YFFNQJKPUGSF6KA5N0FEVPR8GK04UAU6TX38IOXV5ZJBU56OBFSAH8ZMIRZJX6LFS59M6')
-
+scraping_bee_client = ScrapingBeeClient(api_key='YOK6YU7PX88YFFNQJKPUGSF6KA5N0FEVPR8GK04UAU6TX38IOXV5ZJBU56OBFSAH8ZMIRZJX6LFS59M6')#YOK6YU7PX88YFFNQJKPUGSF6KA5N0FEVPR8GK04UAU6TX38IOXV5ZJBU56OBFSAH8ZMIRZJX6LFS59M6
+console = Console()
 
 
 def get_creds():
-    """Shows basic usage of the Sheets API.
-    Prints values from a sample spreadsheet.
+    """
+    Gets credentials from google using google Oauth.
     """
     creds = None
     # The file token.json stores the user's access and refresh tokens, and is
@@ -49,6 +52,9 @@ client = gspread.authorize(creds)
 
 def get_reviews_link() -> List[List[str]]:
 
+    """
+    Get all the reviews link sheets from master google spread sheet
+    """
 
     try:
 
@@ -71,7 +77,10 @@ def get_reviews_link() -> List[List[str]]:
 
 
 
-def check_status(link):
+def check_status(link:str)-> Union[int,None]:
+    """
+    Checks the status of review link.
+    """
     try:
         response = scraping_bee_client.get(link,params = { 
             'render_js': 'False',
@@ -101,20 +110,35 @@ def check_status(link):
 
 
 
-def update_reviews_removed(reviews_sheet_link):
-    """Shows basic usage of the Sheets API.
-    Prints values from a sample spreadsheet.
+def generate_report(link:str,spread_sheet , report:List) -> None:
+    try:
+        console.log(f"generating report for: {link}",style="purple")
+        report_sheet = spread_sheet.worksheet("Input - Removed Review URLs")
+        report_sheet.clear()
+        if len(report) > 0:
+            report_sheet.append_row([url['Review Link'] for url in report ])
+
+        console.log(f"report generated for : {link}",style="blue")
+    except:
+        print(f"Input - Removed Review URLs sheet could not be opened for {link}")
+
+    return
+
+
+def update_reviews_removed(reviews_sheet_link:str) -> List:
     """
-    print("working on " , reviews_sheet_link)
+    gets the reviews link sheet. goes through each link that is not removed and checks its status and
+    updates it in the google spread sheet
+    """
+    console.log(f"working on: {reviews_sheet_link}",style="purple")
     if not reviews_sheet_link:
-        return
+        return []
 
     spread_sheet = client.open_by_url(reviews_sheet_link)
     sheet = spread_sheet.worksheet("All 1-2 Star Reviews")
 
     reviews_col = None
     removed_col = None
-    i=1
 
     table = pd.DataFrame(sheet.get_all_records())
 
@@ -127,8 +151,8 @@ def update_reviews_removed(reviews_sheet_link):
             removed_col = i+1
     
     if reviews_col is None or removed_col is None:
-        print(f"failed to find columns in {reviews_sheet_link}") 
-        return
+        console.log(f"failed to find columns in {reviews_sheet_link}",style="red")
+        return []
     
     all_reviews = table['Link to Review'].to_list()
     all_removed = table['Removed'].to_list()
@@ -139,7 +163,6 @@ def update_reviews_removed(reviews_sheet_link):
         if all_removed[i] == "FALSE":
             status = check_status(all_reviews[i])
             if status == 404:
-                print("found a review removed",all_reviews[i])
                 report.append(
                     {
                         "Review ID": table.iloc[i]["Review ID"],
@@ -149,16 +172,22 @@ def update_reviews_removed(reviews_sheet_link):
                     }
                 )
                 all_removed[i] = "TRUE"
+
     sheet.update(f'{chr(64 + removed_col)}:{chr(64 + removed_col)}', [["Removed"]]+[ [False] if r == "FALSE" else [True] for r in all_removed])
-    print('done',reviews_sheet_link)
+
+    console.log(f"found [{len(report)}] review removed {all_reviews[i]}",style="green")
+
+    generate_report(reviews_sheet_link,spread_sheet , report)
+    
+    console.log(f"{reviews_sheet_link} completed!",style="blue")
     return report
 
 
 
 def main():
-    print("getting all the reviews sheet links")
+    console.log(f"Getting all the reviews sheet links from master",style="purple")
     monitering_reviews_link = get_reviews_link()
-    print(f"found {len(monitering_reviews_link)} links from the masters sheet.")
+    console.log(f"found [{len(monitering_reviews_link)}] links from the masters sheet.",style="blue")
 
     report = []
     with ThreadPoolExecutor(max_workers=8) as executor:
@@ -166,9 +195,12 @@ def main():
         for r in results:
             report.extend(r)
         report = pd.DataFrame(report)
-    print("updates done")
     report.to_csv("report.csv")
-    # update_reviews_removed(monitering_reviews_link[0])
+
+    console.log(f"Update Done!!",style="Green")
+
+
+
 if __name__ == '__main__':
     main()
 
