@@ -1,4 +1,5 @@
 from __future__ import print_function
+from multiprocessing.connection import wait
 
 import os.path
 from re import I, S
@@ -74,13 +75,15 @@ def get_reviews_link() -> List[List[str]]:
 def check_status(link):
     response = scraping_bee_client.get(link,params = { 
         'render_js': 'False',
+        'json_response':"True"
     })
-    if response.ok:
-        return int(response.headers['Spb-initial-status-code'])
-    else:
-        print("not ok")
-    time.sleep(2)
-    return 200
+
+    try:
+        status = response.headers.get('Spb-initial-status-code',None)
+        return int(status)
+    except:
+        return None
+
 
 
 def update_reviews_removed(reviews_sheet_link):
@@ -99,7 +102,7 @@ def update_reviews_removed(reviews_sheet_link):
     i=1
 
     columns =sheet.row_values(1)
-    print(columns)
+
     for i , column in enumerate(columns):
         if  column == "Link to Review":
             reviews_col = i+1
@@ -108,19 +111,18 @@ def update_reviews_removed(reviews_sheet_link):
             removed_col = i+1
     
     if reviews_col is None or removed_col is None:
-        print("failed to find columns") 
+        print(f"failed to find columns in {reviews_sheet_link}") 
+        return
     
     print("found all columns")
     all_reviews = sheet.col_values(reviews_col)
     all_removed = sheet.col_values(removed_col)
 
-    print(all_reviews[0])
-    print(all_removed[0])
 
     for i in range(1,len(all_reviews)):
         if all_removed[i] == "FALSE":
             status = check_status(all_reviews[i])
-            if status != 200:
+            if status == 404:
                 print("found one review removed",all_reviews[i])
                 all_removed[i] = "TRUE"
     sheet.update(f'{chr(64 + removed_col) }:{chr(64 + removed_col)}', [[all_removed[0]]]+[ [False] if r == "FALSE" else [True] for r in all_removed[1:]])
@@ -129,9 +131,13 @@ def update_reviews_removed(reviews_sheet_link):
 
 
 def main():
+    print("getting all the reviews sheet links")
     monitering_reviews_link = get_reviews_link()
-    executor = ThreadPoolExecutor(5)
-    future = executor.map(update_reviews_removed,monitering_reviews_link)
+    print(f"found {len(monitering_reviews_link)} links from the masters sheet.")
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        executor.map(update_reviews_removed,monitering_reviews_link)
+    print("updates done")
     # update_reviews_removed(monitering_reviews_link[0])
 if __name__ == '__main__':
     main()
