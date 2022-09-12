@@ -65,7 +65,7 @@ def get_reviews_link() -> List[List[str]]:
 
         if not values:
             print('No data found.')
-            return
+            return []
 
         reviews_link = list(filter(lambda x: x.startswith("https"),values))
 
@@ -74,6 +74,7 @@ def get_reviews_link() -> List[List[str]]:
     except Exception as e:
         print("couldn't work with master sheet")
         print(e)
+        return []
 
 
 
