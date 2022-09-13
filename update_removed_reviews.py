@@ -83,31 +83,52 @@ def check_status(link:str)-> Union[int,None]:
     """
     Checks the status of review link.
     """
-    try:
-        response = scraping_bee_client.get(link,params = { 
-            'render_js': 'False',
-            'json_response':"True"
-        })
-
+    retries = 3
+    tried = 1
+    while tried <= retries:
         try:
-            status = response.headers.get('Spb-initial-status-code',None)
-            return int(status)
-        except:
-            return None
+            response = scraping_bee_client.get(link,params = { 
+                'render_js': 'False',
+                'json_response':"True"
+            })
 
-    except requests.exceptions.ConnectTimeout as e:
-        print("timed out connecting to scrapingbee")
+            try:
+                status = response.status_code
+                if status:
+                    status = int(status)
+                    if status >= 500:
+                        console.log(f"{status} http error occured {link}",style="red")
+                        console.log(f"Reason {response.reason} {link}",style="red")
+                    elif status != 404 and status != 200:
+                        console.log(f"{status} http error occured {link}",style="red")
+                        console.log(f"Reason {response.reason} {link}",style="red")
+                        console.log(f"trying again({tried + 1}) {link}",style="red")
+                        tried += 1
+                        time.sleep(2 * tried)
+                        continue
+                return status
+            except:
+                return None
 
-    except requests.exceptions.ConnectionError as e:
-        print("make sure your connected to internet")
+        except requests.exceptions.ConnectTimeout as e:
+            console.log(f"timed out connecting to scrapingbee: {link}",style="red")
 
-    except requests.exceptions.RequestException as e:
-        print("Fatal error : ",e)
+        except requests.exceptions.ConnectionError as e:
+            console.log(f"make sure your connected to internet: {link}",style="red")
 
-    except Exception as e:
-        print(e)
-        print(link)
-    
+        except requests.exceptions.RequestException as e:
+            console.log(f"Fatal error: {link}",style="red")
+            print(e)
+
+        except Exception as e:
+            print(e)
+            print(link)
+
+        console.log(f"retrying({tried + 1}) request {link}",style="red")
+        tried += 1
+        time.sleep(2 * tried)
+
+    print(f"did 3 retires but no request was made {link}")
     return None
 
 
@@ -118,7 +139,7 @@ def generate_report(link:str,spread_sheet , report:List) -> None:
         report_sheet = spread_sheet.worksheet("Input - Removed Review URLs")
         report_sheet.clear()
         if len(report) > 0:
-            report_sheet.append_row([url['Review Link'] for url in report ])
+            report_sheet.update("A:A",[[url['Review Link']] for url in report ])
 
         console.log(f"report generated for : {link}",style="blue")
     except:
@@ -177,7 +198,7 @@ def update_reviews_removed(reviews_sheet_link:str) -> List:
 
     sheet.update(f'{chr(64 + removed_col)}:{chr(64 + removed_col)}', [["Removed"]]+[ [False] if r == "FALSE" else [True] for r in all_removed])
 
-    console.log(f"found [{len(report)}] review removed {all_reviews[i]}",style="green")
+    console.log(f"[{len(report)}] review(s) removed {reviews_sheet_link}",style="green")
 
     generate_report(reviews_sheet_link,spread_sheet , report)
     
@@ -185,6 +206,15 @@ def update_reviews_removed(reviews_sheet_link:str) -> List:
     return report
 
 
+# def get_status(review_link,removed):
+#     status = 200
+#     if removed == "FALSE":
+#         status = check_status(review_link)
+    
+#     return status
+
+        
+    
 
 def main():
     t1 = time.perf_counter()
