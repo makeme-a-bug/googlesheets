@@ -1,6 +1,7 @@
 from __future__ import print_function
 
 import os.path
+from threading import Thread
 from typing import List,Union
 
 from google.auth.transport.requests import Request
@@ -23,6 +24,7 @@ SCOPES = ['https://www.googleapis.com/auth/drive','https://www.googleapis.com/au
 scraping_bee_client = ScrapingBeeClient(api_key='YOK6YU7PX88YFFNQJKPUGSF6KA5N0FEVPR8GK04UAU6TX38IOXV5ZJBU56OBFSAH8ZMIRZJX6LFS59M6')#YOK6YU7PX88YFFNQJKPUGSF6KA5N0FEVPR8GK04UAU6TX38IOXV5ZJBU56OBFSAH8ZMIRZJX6LFS59M6
 console = Console()
 master_sheet = "https://docs.google.com/spreadsheets/d/1GB4GaoaqQzQqDlWKjOMN8c0VPeW5GHAW5ZtDCNwWTu4/edit#gid=2064478844"
+
 
 def get_creds():
     """
@@ -90,24 +92,22 @@ def check_status(link:str)-> Union[int,None]:
             response = scraping_bee_client.get(link,params = { 
                 'render_js': 'False',
                 'json_response':"True"
-            })
+            },timeout = 120)
 
             try:
                 status = response.status_code
                 if status:
                     status = int(status)
-                    if status >= 500:
-                        console.log(f"{status} http error occured {link}",style="red")
-                        console.log(f"Reason {response.reason} {link}",style="red")
-                    elif status != 404 and status != 200:
+                    if status != 404 and status != 200:
                         console.log(f"{status} http error occured {link}",style="red")
                         console.log(f"Reason {response.reason} {link}",style="red")
                         console.log(f"trying again({tried + 1}) {link}",style="red")
                         tried += 1
-                        time.sleep(2 * tried)
+                        time.sleep(3 * tried)
                         continue
                 return status
             except:
+                tried = 4 
                 return None
 
         except requests.exceptions.ConnectTimeout as e:
@@ -126,9 +126,9 @@ def check_status(link:str)-> Union[int,None]:
 
         console.log(f"retrying({tried + 1}) request {link}",style="red")
         tried += 1
-        time.sleep(2 * tried)
+        time.sleep(3 * tried)
 
-    print(f"did 3 retires but no request was made {link}")
+    print(f"did 3 retires but request was not successful {link}")
     return None
 
 
@@ -180,17 +180,31 @@ def update_reviews_removed(reviews_sheet_link:str) -> List:
     all_reviews = table['Link to Review'].to_list()
     all_removed = table['Removed'].to_list()
 
-    statuses = []
+    statuses = [200] * len(all_removed)
     report = []
 
     args = tuple(zip(all_reviews,all_removed))
-
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        results = executor.map(lambda p: get_status(*p), args)
-        for r in results:
-            statuses.append(r)
-
-
+    print(len(args))
+    num_threads = 10
+    threads = []
+    for i,arg in enumerate(args):
+        thread = Thread(target=get_status, args=list(arg) + [statuses,i])
+        thread.start()
+        threads.append(thread)
+        if len(threads) >= num_threads or i == len(args)-1:
+            for t in threads:
+                t.join()
+            threads = []
+            print("rows done",i+1)
+    
+    
+    # with ThreadPoolExecutor(max_workers=8) as executor:
+    #     results = executor.map(lambda p: get_status(*p), args)
+    #     for r in results:
+    #         statuses.append(r)
+    
+    
+    print("request finished")        
     for i in range(0,len(all_reviews)):
         if statuses[i] == 404:
             report.append(
@@ -214,12 +228,11 @@ def update_reviews_removed(reviews_sheet_link:str) -> List:
     return report
 
 
-def get_status(review_link,removed):
+def get_status(review_link,removed,result,i):
     status = 200
     if removed == "FALSE":
         status = check_status(review_link)
-    
-    return status
+    result[i] = status
 
         
     
@@ -232,8 +245,12 @@ def main():
 
     report = []
     for review_sheet in monitering_reviews_link:
-        result = update_reviews_removed(review_sheet)
-        report.extend(result)
+        try:
+            # print(review_sheet)
+            result = update_reviews_removed(review_sheet)
+            report.extend(result)
+        except:
+            print('could not do reporting for:',review_sheet)
 
     report = pd.DataFrame(report)
     report.to_csv("report.csv")
