@@ -22,7 +22,7 @@ SCOPES = ['https://www.googleapis.com/auth/drive','https://www.googleapis.com/au
 # The ID and range of a sample spreadsheet.
 scraping_bee_client = ScrapingBeeClient(api_key='YOK6YU7PX88YFFNQJKPUGSF6KA5N0FEVPR8GK04UAU6TX38IOXV5ZJBU56OBFSAH8ZMIRZJX6LFS59M6')#YOK6YU7PX88YFFNQJKPUGSF6KA5N0FEVPR8GK04UAU6TX38IOXV5ZJBU56OBFSAH8ZMIRZJX6LFS59M6
 console = Console()
-
+master_sheet = "https://docs.google.com/spreadsheets/d/1GB4GaoaqQzQqDlWKjOMN8c0VPeW5GHAW5ZtDCNwWTu4/edit#gid=2064478844"
 
 def get_creds():
     """
@@ -59,7 +59,7 @@ def get_reviews_link() -> List[List[str]]:
 
     try:
 
-        spread_sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1GB4GaoaqQzQqDlWKjOMN8c0VPeW5GHAW5ZtDCNwWTu4/edit#gid=2064478844")
+        spread_sheet = client.open_by_url(master_sheet)
         sheet = spread_sheet.worksheet("Negative Review Service Dashboard")
         # Call the Sheets API
         values = sheet.col_values(13)
@@ -180,13 +180,20 @@ def update_reviews_removed(reviews_sheet_link:str) -> List:
     all_reviews = table['Link to Review'].to_list()
     all_removed = table['Removed'].to_list()
 
+    statuses = []
     report = []
 
+    args = tuple(zip(all_reviews,all_removed))
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        results = executor.map(lambda p: get_status(*p), args)
+        for r in results:
+            statuses.append(r)
+
+
     for i in range(0,len(all_reviews)):
-        if all_removed[i] == "FALSE":
-            status = check_status(all_reviews[i])
-            if status == 404:
-                report.append(
+        if statuses[i] == 404:
+            report.append(
                     {
                         "Review ID": table.iloc[i]["Review ID"],
                         "Review Link":all_reviews[i],
@@ -194,7 +201,8 @@ def update_reviews_removed(reviews_sheet_link:str) -> List:
                         "Sheet":reviews_sheet_link
                     }
                 )
-                all_removed[i] = "TRUE"
+            all_removed[i] = "TRUE"
+
 
     sheet.update(f'{chr(64 + removed_col)}:{chr(64 + removed_col)}', [["Removed"]]+[ [False] if r == "FALSE" else [True] for r in all_removed])
 
@@ -206,12 +214,12 @@ def update_reviews_removed(reviews_sheet_link:str) -> List:
     return report
 
 
-# def get_status(review_link,removed):
-#     status = 200
-#     if removed == "FALSE":
-#         status = check_status(review_link)
+def get_status(review_link,removed):
+    status = 200
+    if removed == "FALSE":
+        status = check_status(review_link)
     
-#     return status
+    return status
 
         
     
@@ -223,11 +231,11 @@ def main():
     console.log(f"found [{len(monitering_reviews_link)}] links from the masters sheet.",style="blue")
 
     report = []
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        results = executor.map(update_reviews_removed,monitering_reviews_link)
-        for r in results:
-            report.extend(r)
-        report = pd.DataFrame(report)
+    for review_sheet in monitering_reviews_link:
+        result = update_reviews_removed(review_sheet)
+        report.extend(result)
+
+    report = pd.DataFrame(report)
     report.to_csv("report.csv")
 
     console.log(f"Update Done!!",style="Green")
